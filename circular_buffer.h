@@ -64,13 +64,20 @@ public:
         _size = rhs._size;
         _head = rhs._head;
         _tail = rhs._tail;
-        T* newarr = static_cast<T*>(operator new(sizeof(T) * _capacity));
+        arr = static_cast<T*>(operator new(sizeof(T) * _capacity));
         memcp(rhs.arr, arr);
     }
 
     circular_buffer& operator=(circular_buffer const& rhs) {
-        clear();
-        this = new circular_buffer(rhs);
+        if (arr != rhs.arr) {
+            clear();
+            _capacity = rhs._capacity;
+            _size = rhs._size;
+            _head = rhs._head;
+            _tail = rhs._tail;
+            arr = static_cast<T*>(operator new(sizeof(T) * _capacity));
+            memcp(rhs.arr, arr);
+        }
         return *this;
     }
 
@@ -84,7 +91,7 @@ public:
 
     void clear() {
         if (_capacity != 0) {
-            delete[] arr;
+            delete arr;
         }
     }
 
