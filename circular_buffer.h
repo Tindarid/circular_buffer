@@ -1,10 +1,8 @@
 #ifndef CIRCULAR_BUFFER_H
 #define CIRCULAR_BUFFER_H
 
-#include <cstddef>
 #include <iterator>
 #include <type_traits>
-#include <utility>
 
 template <typename T>
 class circular_buffer {
@@ -16,40 +14,22 @@ private:
     T* arr;
 
     size_t getNextPos(size_t ind) const {
-        if (_capacity == 0) {
-            return 0;
-        }
         return (ind + 1) % _capacity;
     }
 
     size_t getPrevPos(size_t ind) const {
-        if (_capacity == 0) {
-            return 0;
-        }
         return (_capacity + ind - 1) % _capacity;
-    }
-
-    void memcp(T* src, T* dest) {
-        for (size_t i = 0, j = _head; i < _size; ++i, ++j) {
-            new (&dest[i]) T(src[getNextPos(j)]);
-        }
     }
 
     void ensureCapacity(size_t newsize) {
         if (newsize <= _capacity) {
             return;
         }
-        size_t newcapacity = (_capacity + 3) * 2;
-        T* newarr = static_cast<T*>(operator new(sizeof(T) * newcapacity));
-        memcp(arr, newarr);
-        while(!empty()) {
-            pop_back();
+        circular_buffer<T> temp((_capacity + 3) * 2);
+        for (auto i = begin(); i != end(); ++i) {
+            temp.push_back(*i);
         }
-        clear();
-        arr = newarr;
-        _capacity = newcapacity;
-        _head = _capacity - 1;
-        _tail = _size;
+        swap(temp);
     }
 
 public:
@@ -58,7 +38,14 @@ public:
     using const_iterator = buffer_iterator<T const>;
     using const_reverse_iterator = std::reverse_iterator<const_iterator>;
 
-    circular_buffer() {
+    circular_buffer(size_t somesize) {
+        arr = static_cast<T*>(operator new(sizeof(T) * somesize));
+        _capacity = somesize;
+        _size = _tail = 0;
+        _head = _capacity - 1;
+    }
+
+    circular_buffer() noexcept {
         _tail = _head = _capacity = _size = 0;
     }
 
@@ -67,20 +54,25 @@ public:
         _size = rhs._size;
         _head = rhs._head;
         _tail = rhs._tail;
-        arr = static_cast<T*>(operator new(sizeof(T) * _capacity));
-        memcp(rhs.arr, arr);
+        if (_capacity != 0) {
+            arr = static_cast<T*>(operator new(sizeof(T) * _capacity));
+        }
+        for (size_t i = 0; i < _size; ++i) {
+            try {
+                (new (&arr[(_head + i + 1) % _capacity]) T(rhs[i]));
+            } catch (...) {
+                for (size_t j = 0; j < i; ++j) {
+                    arr[(_head + j + 1) % _capacity].~T();
+                }
+                operator delete (arr);
+                throw;
+            }
+        }
     }
 
     circular_buffer& operator=(circular_buffer const& rhs) {
-        if (arr != rhs.arr) {
-            clear();
-            _capacity = rhs._capacity;
-            _size = rhs._size;
-            _head = rhs._head;
-            _tail = rhs._tail;
-            arr = static_cast<T*>(operator new(sizeof(T) * _capacity));
-            memcp(rhs.arr, arr);
-        }
+        circular_buffer<T> temp(rhs);
+        swap(temp);
         return *this;
     }
 
@@ -93,8 +85,12 @@ public:
     }
 
     void clear() {
+        while (!empty()) {
+            pop_back();
+        }
         if (_capacity != 0) {
-            delete arr;
+            operator delete (arr);
+            _capacity = 0;
         }
     }
 
@@ -260,7 +256,7 @@ public:
     }
 
     buffer_iterator operator-=(size_t i) {
-        index -= i;
+        index = (index + _capacity - i) % _capacity;
         return *this;
     }
 
@@ -270,19 +266,19 @@ public:
         return copy;
     }
 
+    buffer_iterator operator+=(size_t i) {
+        index = (index + i) % _capacity;
+        return *this;
+    }
+
     friend buffer_iterator operator+(size_t i, buffer_iterator const& a) {
         buffer_iterator copy = a;
         copy += i;
         return copy;
     }
 
-    buffer_iterator operator+=(size_t i) {
-        index += i;
-        return *this;
-    }
-
     friend buffer_iterator operator+(buffer_iterator const& a, size_t i) {
-        buffer_iterator copy = a;
+        buffer_iterator copy(a);
         copy += i;
         return copy;
     }
@@ -320,24 +316,22 @@ public:
 
 template <typename T>
 circular_buffer<T>::buffer_iterator<T> circular_buffer<T>::insert(buffer_iterator<T const> pos, T const& val) {
-    ensureCapacity(_size + 1);
-    buffer_iterator<T> temp(pos.index, arr, _head, _capacity);
     if (std::abs(pos - begin()) < std::abs(pos - end())) {
         push_front(val);
+        buffer_iterator<T> temp(pos.index, arr, _head, _capacity);
         auto cur = begin();
         while (cur != temp) {
             std::swap(*cur, *(cur + 1));
             ++cur;
         }
-        *cur = val;
     } else {
         push_back(val);
-        auto cur = end();
+        buffer_iterator<T> temp(pos.index, arr, _head, _capacity);
+        auto cur = end() - 1;
         while (cur != temp) {
             std::swap(*cur, *(cur - 1));
             --cur;
         }
-        *cur = val;
     }
     buffer_iterator<T> ans(pos.index, arr, _head, _capacity);
     return ans;
@@ -355,7 +349,7 @@ circular_buffer<T>::buffer_iterator<T> circular_buffer<T>::erase(buffer_iterator
         pop_front();
     } else {
         auto cur = temp;
-        while (cur != end()) {
+        while (cur != end() - 1) {
             std::swap(*cur, *(cur + 1));
             ++cur;
         }
